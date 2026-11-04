@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "allow-app-info",
+    "allow-registry-list",
+    "allow-registry-get",
+    "allow-registry-register",
+    "allow-registry-update",
+    "allow-registry-remove",
+    "allow-discovery-resolve"
+  ]
+}

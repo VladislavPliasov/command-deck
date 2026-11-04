@@ -1,0 +1,33 @@
+{
+  "schemaVersion": "1.0",
+  "id": "nmap",
+  "name": "Nmap",
+  "description": "Network exploration tool and security / port scanner.",
+  "category": "Scanning",
+  "tags": ["network", "scanner", "ports"],
+  "integrationType": "cli",
+  "executable": {
+    "name": "nmap.exe",
+    "path": "C:\\Tools\\Nmap\\nmap.exe"
+  },
+  "version": {
+    "value": "7.95.0.0",
+    "source": "file-version"
+  },
+  "discovery": {
+    "source": "manual",
+    "discoveredAt": "2026-11-03T15:04:05Z"
+  },
+  "verification": {
+    "status": "unverified",
+    "source": "manual-import"
+  },
+  "platforms": ["windows", "linux"],
+  "documentationUrl": "https://nmap.org/book/man.html",
+  "author": {
+    "name": "Nmap Project",
+    "url": "https://nmap.org"
+  },
+  "createdAt": "2026-11-03T15:04:05Z",
+  "updatedAt": "2026-11-03T15:04:05Z"
+}
