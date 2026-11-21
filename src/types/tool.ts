@@ -68,6 +68,65 @@ export type VerificationStatus =
 export interface VerificationInfo {
   status: VerificationStatus;
   source: string;
+  /** Version the metadata was originally authored/verified against
+   *  (historical reference; not a compatibility guarantee). */
+  toolVersion?: string;
+}
+
+export type ParameterKind = "flag" | "option" | "positional" | "custom";
+
+export type ValueTypeName =
+  | "boolean"
+  | "string"
+  | "integer"
+  | "decimal"
+  | "enum"
+  | "file"
+  | "directory"
+  | "ip"
+  | "cidr"
+  | "domain"
+  | "port"
+  | "list"
+  | "custom";
+
+export interface ValueSpec {
+  valueType: ValueTypeName;
+  choices: string[];
+  default?: string;
+  multiple: boolean;
+  optional: boolean;
+}
+
+export interface ParameterSpec {
+  id: string;
+  kind: ParameterKind;
+  label: string;
+  token?: string;
+  aliases?: string[];
+  description?: string;
+  syntax?: string;
+  value?: ValueSpec;
+  required: boolean;
+  repeatable: boolean;
+  requires: string[];
+  conflicts: string[];
+  examples: string[];
+  versionConstraints: string[];
+  order?: number;
+}
+
+export interface CommandSpec {
+  id: string;
+  /** Literal argv token; null = direct/executable-level mode (top level only). */
+  token: string | null;
+  name: string;
+  summary?: string;
+  description?: string;
+  syntaxExamples: string[];
+  versionConstraints: string[];
+  parameters: ParameterSpec[];
+  subcommands: CommandSpec[];
 }
 
 export interface ExecutableInfo {
@@ -93,6 +152,7 @@ export interface ToolProfile {
   discovery: DiscoveryInfo;
   verification: VerificationInfo;
   platforms: Platform[];
+  commands?: CommandSpec[];
   documentationUrl?: string;
   author?: AuthorInfo;
   createdAt: string;
@@ -142,6 +202,8 @@ export interface UpdateToolRequest {
   documentationUrl?: string;
   author?: AuthorInfo;
   executablePath?: string;
+  /** undefined = leave command metadata unchanged; [] clears it. */
+  commands?: CommandSpec[];
 }
 
 export interface RegistryErrorShape {

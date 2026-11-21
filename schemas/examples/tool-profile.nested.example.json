@@ -1,0 +1,69 @@
+{
+  "schemaVersion": "1.1",
+  "id": "dotnet",
+  "name": "Dotnet CLI",
+  "description": "Example profile demonstrating nested subcommand metadata.",
+  "category": "other",
+  "tags": ["cli"],
+  "integrationType": "cli",
+  "executable": {
+    "name": "dotnet.exe",
+    "path": "C:\\Program Files\\dotnet\\dotnet.exe"
+  },
+  "discovery": {
+    "source": "manual",
+    "discoveredAt": "2026-11-05T09:00:00Z"
+  },
+  "verification": {
+    "status": "unverified",
+    "source": "manual-import"
+  },
+  "platforms": ["windows", "linux"],
+  "commands": [
+    {
+      "id": "tool",
+      "token": "tool",
+      "name": "Tool",
+      "summary": "Manage .NET tools",
+      "syntaxExamples": ["dotnet tool install <package>"],
+      "parameters": [],
+      "subcommands": [
+        {
+          "id": "install",
+          "token": "install",
+          "name": "Install",
+          "summary": "Install a .NET tool",
+          "syntaxExamples": ["dotnet tool install --global <package>"],
+          "parameters": [
+            {
+              "id": "package",
+              "kind": "positional",
+              "label": "Package",
+              "description": "Tool package to install",
+              "required": true,
+              "value": { "valueType": "string" },
+              "order": 1
+            },
+            {
+              "id": "global",
+              "kind": "flag",
+              "token": "--global",
+              "label": "Install globally",
+              "description": "Install the tool for all users"
+            },
+            {
+              "id": "version",
+              "kind": "option",
+              "token": "--version",
+              "label": "Version",
+              "description": "Version of the tool to install",
+              "value": { "valueType": "string" }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "createdAt": "2026-11-05T09:00:00Z",
+  "updatedAt": "2026-11-05T09:00:00Z"
+}

@@ -146,8 +146,10 @@ mod tests {
             verification: VerificationInfo {
                 status: VerificationStatus::Unverified,
                 source: "manual-import".to_string(),
+                tool_version: None,
             },
             platforms: vec![Platform::Windows],
+            commands: None,
             documentation_url: None,
             author: None,
             created_at: "2026-11-03T00:00:00Z".to_string(),

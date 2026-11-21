@@ -2,6 +2,8 @@
 import { reactive, ref, watch } from "vue";
 import { useToolStore } from "../../stores/tools";
 import { toRegistryError } from "../../services/registry";
+import CommandMetadataEditor from "./CommandMetadataEditor.vue";
+import ToolCommands from "./ToolCommands.vue";
 import {
   CATEGORY_VALUES,
   type Category,
@@ -13,6 +15,8 @@ const store = useToolStore();
 const editing = ref(false);
 const saving = ref(false);
 const formError = ref<RegistryErrorShape | null>(null);
+const editorRef = ref<InstanceType<typeof CommandMetadataEditor> | null>(null);
+const editorJson = ref("");
 
 const form = reactive({
   name: "",
@@ -31,6 +35,9 @@ watch(
   (profile) => {
     editing.value = false;
     formError.value = null;
+    editorJson.value = profile?.commands
+      ? JSON.stringify(profile.commands, null, 2)
+      : "";
     if (profile) {
       form.name = profile.name;
       form.description = profile.description ?? "";
@@ -57,6 +64,11 @@ async function save() {
   if (!store.selected) {
     return;
   }
+  const prepared = editorRef.value?.prepare() ?? { ok: true };
+  if (!prepared.ok) {
+    // JSON syntax error: keep the entered text, stay in the editor.
+    return;
+  }
   saving.value = true;
   formError.value = null;
   try {
@@ -71,10 +83,20 @@ async function save() {
         ? { name: form.authorName, url: form.authorUrl || undefined }
         : undefined,
       executablePath: form.executablePath,
+      // Only the commands metadata field; omitted entirely when unchanged.
+      ...(prepared.commands !== undefined ? { commands: prepared.commands } : {}),
     });
     editing.value = false;
   } catch (e) {
-    formError.value = toRegistryError(e);
+    const err = toRegistryError(e);
+    const isCommandError =
+      (err.field && err.field.startsWith("commands")) ||
+      /not allowed for kind|missing field `token`|duplicate field/.test(err.message);
+    if (isCommandError) {
+      editorRef.value?.setError(err);
+    } else {
+      formError.value = err;
+    }
   } finally {
     saving.value = false;
   }
@@ -126,7 +148,8 @@ async function remove() {
       <span v-if="formError.field">({{ formError.field }})</span>
     </p>
 
-    <dl v-if="!editing">
+    <template v-if="!editing">
+    <dl>
       <dt>Executable</dt>
       <dd>
         <code>{{ store.selected.executable.name }}</code>
@@ -135,7 +158,7 @@ async function remove() {
       <dd>
         <code>{{ store.selected.executable.path }}</code>
       </dd>
-      <dt>Version</dt>
+      <dt>Registered executable version</dt>
       <dd>
         {{
           store.selected.version
@@ -171,11 +194,33 @@ async function remove() {
           store.selected.verification.source
         }})
       </dd>
+      <dt>Metadata reference version</dt>
+      <dd>
+        {{
+          store.selected.verification.toolVersion
+            ? `${store.selected.verification.toolVersion} — authored/verified against (historical reference; not a compatibility guarantee)`
+            : "—"
+        }}
+      </dd>
       <dt>Created</dt>
       <dd>{{ store.selected.createdAt }}</dd>
       <dt>Updated</dt>
       <dd>{{ store.selected.updatedAt }}</dd>
     </dl>
+
+    <section class="commands-section">
+      <h3>Commands</h3>
+      <ToolCommands
+        v-if="store.selected.commands?.length"
+        :commands="store.selected.commands"
+        :executable-name="store.selected.executable.name"
+      />
+      <p v-else class="hint">
+        No command metadata for this tool. Use Edit &rarr; Command metadata
+        (JSON) to add it.
+      </p>
+    </section>
+    </template>
 
     <form v-else class="edit-form" @submit.prevent="save">
       <label>
@@ -219,6 +264,7 @@ async function remove() {
         Author URL
         <input v-model="form.authorUrl" placeholder="https://..." />
       </label>
+      <CommandMetadataEditor ref="editorRef" :initial-json="editorJson" />
       <div class="actions">
         <button type="submit" :disabled="saving">
           {{ saving ? "Saving..." : "Save" }}
@@ -353,5 +399,19 @@ dd {
 
 .empty {
   color: #777;
+}
+
+.commands-section {
+  margin-top: 1.25rem;
+}
+
+.commands-section h3 {
+  font-size: 1.05rem;
+  margin: 0 0 0.5rem;
+}
+
+.hint {
+  color: #777;
+  font-size: 0.88rem;
 }
 </style>

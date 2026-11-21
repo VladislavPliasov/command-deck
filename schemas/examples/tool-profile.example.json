@@ -1,5 +1,5 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "id": "nmap",
   "name": "Nmap",
   "description": "Network exploration tool and security / port scanner.",
@@ -20,9 +20,93 @@
   },
   "verification": {
     "status": "unverified",
-    "source": "manual-import"
+    "source": "manual-import",
+    "toolVersion": "7.95"
   },
   "platforms": ["windows", "linux"],
+  "commands": [
+    {
+      "id": "root",
+      "token": null,
+      "name": "Direct",
+      "summary": "Run nmap with options directly",
+      "description": "Execute a scan without subcommands.",
+      "syntaxExamples": ["nmap -sS -p 22,80 <target>"],
+      "versionConstraints": [">= 7.90"],
+      "parameters": [
+        {
+          "id": "target",
+          "kind": "positional",
+          "label": "Target",
+          "description": "Host(s) or network(s) to scan",
+          "syntax": "<target>",
+          "required": true,
+          "value": { "valueType": "string", "multiple": true },
+          "examples": ["10.0.0.1", "10.0.0.0/24"],
+          "order": 1
+        },
+        {
+          "id": "ports",
+          "kind": "option",
+          "token": "-p",
+          "label": "Ports",
+          "description": "Ports to scan",
+          "syntax": "-p <ports>",
+          "value": { "valueType": "string" },
+          "requires": ["target"],
+          "conflicts": ["top-ports"],
+          "examples": ["22,80,443"]
+        },
+        {
+          "id": "color",
+          "kind": "option",
+          "token": "--color",
+          "label": "Colorize output",
+          "description": "Colorize terminal output; may be given without a value",
+          "value": {
+            "valueType": "enum",
+            "choices": ["never", "always", "auto"],
+            "default": "auto",
+            "optional": true
+          }
+        },
+        {
+          "id": "exclude",
+          "kind": "option",
+          "token": "--exclude",
+          "label": "Exclude hosts",
+          "description": "Hosts/networks to exclude; one occurrence accepts multiple values",
+          "value": { "valueType": "string", "multiple": true }
+        },
+        {
+          "id": "top-ports",
+          "kind": "option",
+          "token": "--top-ports",
+          "label": "Top ports",
+          "description": "Scan the N most common ports",
+          "value": { "valueType": "integer" },
+          "versionConstraints": [">= 7.80"]
+        },
+        {
+          "id": "verbose",
+          "kind": "flag",
+          "token": "-v",
+          "label": "Verbose",
+          "description": "Increase verbosity; repeatable",
+          "repeatable": true,
+          "required": false
+        },
+        {
+          "id": "legacy-config",
+          "kind": "custom",
+          "label": "Config-file mode",
+          "description": "Reads options from a configuration file; structure not modeled",
+          "syntax": "-C <config-file>"
+        }
+      ],
+      "subcommands": []
+    }
+  ],
   "documentationUrl": "https://nmap.org/book/man.html",
   "author": {
     "name": "Nmap Project",

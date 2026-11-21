@@ -72,5 +72,18 @@ mod tests {
         validation::validate_profile(&profile).expect("example must pass Rust validation");
         assert_eq!(profile.id, "nmap");
         assert_eq!(profile.category.as_str(), "Scanning");
+        let commands = profile.commands.expect("example carries commands");
+        assert!(commands[0].token.is_none(), "direct-mode entry");
+        assert_eq!(commands[0].parameters.len(), 7);
+    }
+
+    #[test]
+    fn nested_example_profile_matches_model_and_validator() {
+        let raw = include_str!("../../../schemas/examples/tool-profile.nested.example.json");
+        let profile: ToolProfile =
+            serde_json::from_str(raw).expect("nested example must deserialize");
+        validation::validate_profile(&profile).expect("nested example must pass Rust validation");
+        let commands = profile.commands.expect("nested example carries commands");
+        assert_eq!(commands[0].subcommands[0].id, "install");
     }
 }

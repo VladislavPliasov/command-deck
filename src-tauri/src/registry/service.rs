@@ -110,8 +110,10 @@ impl RegistryService {
             verification: VerificationInfo {
                 status: VerificationStatus::Unverified,
                 source: "manual-import".to_string(),
+                tool_version: None,
             },
             platforms: default_platforms(),
+            commands: None,
             documentation_url: req.documentation_url,
             author: req.author,
             created_at: now.clone(),
@@ -191,6 +193,28 @@ impl RegistryService {
             };
         }
 
+        if let Some(commands) = req.commands {
+            let previous = profile.commands.clone();
+            // Deterministic structural equality (PartialEq): array order is
+            // significant, strings compare exactly, None != Some([]).
+            let changed = previous.as_ref() != Some(&commands);
+            profile.commands = Some(commands);
+            if changed {
+                // D1: command metadata changes invalidate verification for
+                // `verified` and `partially-verified` profiles only.
+                if matches!(
+                    profile.verification.status,
+                    VerificationStatus::Verified | VerificationStatus::PartiallyVerified
+                ) {
+                    profile.verification.status = VerificationStatus::Unverified;
+                }
+            }
+        }
+
+        // Stamping policy: every explicit profile write stamps the current
+        // schema version. Reads never write. verification.toolVersion is
+        // never written here (nor anywhere else in P0-04).
+        profile.schema_version = SCHEMA_VERSION.to_string();
         profile.updated_at = now_rfc3339();
         validation::validate_profile(&profile)?;
         self.storage.save(&profile)?;
@@ -453,6 +477,7 @@ mod tests {
                 url: None,
             }),
             executable_path: None,
+            commands: None,
         };
         let updated = service.update(&created.profile.id, req).unwrap();
         assert_eq!(updated.profile.name, "Renamed");
@@ -478,6 +503,7 @@ mod tests {
             documentation_url: None,
             author: None,
             executable_path: Some(path_b.clone()),
+            commands: None,
         };
         let updated = service.update(&a.profile.id, req).unwrap();
         assert_eq!(updated.profile.executable.path, path_b);
@@ -526,6 +552,296 @@ mod tests {
             documentation_url: None,
             author: None,
             executable_path: None,
+            commands: None,
         }
+    }
+
+    fn make_profile(
+        id: &str,
+        status: VerificationStatus,
+        tool_version: Option<&str>,
+        commands: Option<Vec<CommandSpec>>,
+        schema_version: &str,
+    ) -> ToolProfile {
+        ToolProfile {
+            schema_version: schema_version.to_string(),
+            id: id.to_string(),
+            name: id.to_string(),
+            description: Some("desc".to_string()),
+            category: Category::Scanning,
+            tags: vec![],
+            integration_type: IntegrationType::Cli,
+            executable: ExecutableInfo {
+                name: "tool.exe".to_string(),
+                path: "C:\\Tools\\tool.exe".to_string(),
+            },
+            version: None,
+            discovery: DiscoveryInfo {
+                source: DiscoverySource::Manual,
+                discovered_at: "2026-11-04T00:00:00Z".to_string(),
+            },
+            verification: VerificationInfo {
+                status,
+                source: "manual-import".to_string(),
+                tool_version: tool_version.map(String::from),
+            },
+            platforms: vec![Platform::Windows],
+            commands,
+            documentation_url: None,
+            author: None,
+            created_at: "2026-11-04T00:00:00Z".to_string(),
+            updated_at: "2026-11-04T00:00:00Z".to_string(),
+        }
+    }
+
+    fn sample_commands() -> Vec<CommandSpec> {
+        serde_json::from_str(
+            r#"[{"id":"root","token":null,"name":"Direct","parameters":[
+                {"id":"a","kind":"flag","label":"A","token":"-a"},
+                {"id":"b","kind":"flag","label":"B","token":"-b"}],"subcommands":[]}]"#,
+        )
+        .unwrap()
+    }
+
+    fn sample_commands_reordered() -> Vec<CommandSpec> {
+        serde_json::from_str(
+            r#"[{"id":"root","token":null,"name":"Direct","parameters":[
+                {"id":"b","kind":"flag","label":"B","token":"-b"},
+                {"id":"a","kind":"flag","label":"A","token":"-a"}],"subcommands":[]}]"#,
+        )
+        .unwrap()
+    }
+
+    fn service_with_stored(profile: &ToolProfile) -> (tempfile::TempDir, RegistryService, Storage) {
+        let dir = tempfile::tempdir().unwrap();
+        let storage = Storage::new(dir.path().join("registry")).unwrap();
+        storage.save(profile).unwrap();
+        let service = RegistryService::new(Storage::new(dir.path().join("registry")).unwrap());
+        (dir, service, storage)
+    }
+
+    #[test]
+    fn update_sets_preserves_and_clears_commands() {
+        let (dir, service) = service_with_dir();
+        let path = dummy_exe(dir.path(), "tool.exe");
+        let created = service.register(request(&path)).unwrap();
+        assert!(created.profile.commands.is_none());
+
+        let updated = service
+            .update(
+                &created.profile.id,
+                UpdateToolRequest {
+                    commands: Some(sample_commands()),
+                    ..empty_update()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.profile.commands.as_ref().unwrap().len(), 1);
+
+        // omitted commands field leaves metadata unchanged
+        let updated = service
+            .update(
+                &created.profile.id,
+                UpdateToolRequest {
+                    name: Some("Renamed".to_string()),
+                    ..empty_update()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.profile.name, "Renamed");
+        assert_eq!(updated.profile.commands.as_ref().unwrap().len(), 1);
+
+        // Some([]) clears and is stored as an empty array
+        let updated = service
+            .update(
+                &created.profile.id,
+                UpdateToolRequest {
+                    commands: Some(vec![]),
+                    ..empty_update()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.profile.commands, Some(vec![]));
+    }
+
+    #[test]
+    fn downgrade_matrix_when_commands_change() {
+        for (status, expected) in [
+            (VerificationStatus::Verified, VerificationStatus::Unverified),
+            (
+                VerificationStatus::PartiallyVerified,
+                VerificationStatus::Unverified,
+            ),
+            (
+                VerificationStatus::ManuallyConfigured,
+                VerificationStatus::ManuallyConfigured,
+            ),
+            (VerificationStatus::Incompatible, VerificationStatus::Incompatible),
+            (VerificationStatus::Unverified, VerificationStatus::Unverified),
+        ] {
+            let (_dir, service, storage) = service_with_stored(&make_profile(
+                "tool",
+                status,
+                Some("7.95"),
+                Some(sample_commands()),
+                "1.1",
+            ));
+            let mut changed = sample_commands();
+            changed[0].name = "Changed".to_string();
+            let updated = service
+                .update(
+                    "tool",
+                    UpdateToolRequest {
+                        commands: Some(changed),
+                        ..empty_update()
+                    },
+                )
+                .unwrap();
+            assert_eq!(updated.profile.verification.status, expected, "{status:?}");
+            assert_eq!(
+                updated.profile.verification.tool_version.as_deref(),
+                Some("7.95"),
+                "toolVersion must never be written"
+            );
+            let stored = storage.load("tool").unwrap();
+            assert_eq!(stored.verification.status, expected);
+            assert_eq!(stored.verification.tool_version.as_deref(), Some("7.95"));
+        }
+    }
+
+    #[test]
+    fn identical_commands_do_not_change_status() {
+        let (_dir, service, _) = service_with_stored(&make_profile(
+            "tool",
+            VerificationStatus::Verified,
+            None,
+            Some(sample_commands()),
+            "1.1",
+        ));
+        let updated = service
+            .update(
+                "tool",
+                UpdateToolRequest {
+                    commands: Some(sample_commands()),
+                    ..empty_update()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.profile.verification.status, VerificationStatus::Verified);
+    }
+
+    #[test]
+    fn reordered_parameters_count_as_change() {
+        let (_dir, service, _) = service_with_stored(&make_profile(
+            "tool",
+            VerificationStatus::Verified,
+            None,
+            Some(sample_commands()),
+            "1.1",
+        ));
+        let updated = service
+            .update(
+                "tool",
+                UpdateToolRequest {
+                    commands: Some(sample_commands_reordered()),
+                    ..empty_update()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.profile.verification.status, VerificationStatus::Unverified);
+    }
+
+    #[test]
+    fn clearing_absent_commands_counts_as_change() {
+        // None vs Some([]) is a structural change (documented behavior).
+        let (_dir, service, _) = service_with_stored(&make_profile(
+            "tool",
+            VerificationStatus::Verified,
+            None,
+            None,
+            "1.1",
+        ));
+        let updated = service
+            .update(
+                "tool",
+                UpdateToolRequest {
+                    commands: Some(vec![]),
+                    ..empty_update()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.profile.verification.status, VerificationStatus::Unverified);
+    }
+
+    #[test]
+    fn writes_stamp_schema_version_and_preserve_values() {
+        let (dir, service, storage) = service_with_stored(&make_profile(
+            "legacy",
+            VerificationStatus::Unverified,
+            None,
+            None,
+            "1.0",
+        ));
+        let updated = service
+            .update(
+                "legacy",
+                UpdateToolRequest {
+                    name: Some("New Name".to_string()),
+                    ..empty_update()
+                },
+            )
+            .unwrap();
+        assert_eq!(updated.profile.schema_version, "1.1");
+        let stored = storage.load("legacy").unwrap();
+        assert_eq!(stored.schema_version, "1.1");
+        assert_eq!(stored.name, "New Name");
+        assert_eq!(stored.description.as_deref(), Some("desc"));
+        assert!(stored.commands.is_none(), "absent fields stay absent");
+        // register also stamps the current version
+        let path = dummy_exe(dir.path(), "tool2.exe");
+        let created = service.register(request(&path)).unwrap();
+        assert_eq!(created.profile.schema_version, "1.1");
+    }
+
+    #[test]
+    fn command_validation_errors_carry_field_paths() {
+        let (dir, service) = service_with_dir();
+        let path = dummy_exe(dir.path(), "tool.exe");
+        let created = service.register(request(&path)).unwrap();
+        let invalid: Vec<CommandSpec> = serde_json::from_str(
+            r#"[{"id":"root","token":null,"name":"Direct","parameters":[
+                {"id":"f","kind":"flag","label":"F","token":"-v","value":{"valueType":"string"}}],
+                "subcommands":[]}]"#,
+        )
+        .unwrap();
+        let err = service
+            .update(
+                &created.profile.id,
+                UpdateToolRequest {
+                    commands: Some(invalid),
+                    ..empty_update()
+                },
+            )
+            .expect_err("flag with value");
+        assert_eq!(
+            err.field.as_deref(),
+            Some("commands[0].parameters[0].value")
+        );
+    }
+
+    #[test]
+    fn reads_do_not_rewrite_stored_profiles() {
+        let (_dir, service, storage) = service_with_stored(&make_profile(
+            "tool",
+            VerificationStatus::Verified,
+            Some("7.95"),
+            Some(sample_commands()),
+            "1.0",
+        ));
+        let before = std::fs::read(storage.dir().join("tool.json")).unwrap();
+        service.get("tool").unwrap();
+        service.list();
+        let after = std::fs::read(storage.dir().join("tool.json")).unwrap();
+        assert_eq!(before, after, "reads must not rewrite the file");
     }
 }
